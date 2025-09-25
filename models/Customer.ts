@@ -33,6 +33,6 @@ const customerSchema = new Schema({
 
 customerSchema.index({ name: 1, email: 1 });
 
-const Customer = mongoose.model<ICustomer>('Customer', customerSchema);
+const Customer = mongoose.models.Customer || mongoose.model<ICustomer>('Customer', customerSchema);
 
 export default Customer;

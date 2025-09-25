@@ -42,6 +42,6 @@ const salesOrderItemSchema = new Schema({
 salesOrderItemSchema.index({ salesOrderId: 1 });
 salesOrderItemSchema.index({ productVariantId: 1 });
 
-const SalesOrderItem = mongoose.model<ISalesOrderItem>('SalesOrderItem', salesOrderItemSchema);
+const SalesOrderItem = mongoose.models.SalesOrderItem || mongoose.model<ISalesOrderItem>('SalesOrderItem', salesOrderItemSchema);
 
 export default SalesOrderItem;

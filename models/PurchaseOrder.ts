@@ -7,6 +7,7 @@ export interface IPurchaseOrder extends Document {
   status: string; // pending, received, cancelled
   totalAmount: number;
   referenceNumber: string;
+  paymentStatus: string; // unpaid, partial, paid
   createdAt: Date;
 }
 
@@ -30,6 +31,11 @@ const purchaseOrderSchema = new Schema({
     required: true,
     default: 0
   },
+  paymentStatus: {
+    type: String,
+    enum: ['unpaid', 'partial', 'paid'],
+    default: 'unpaid'
+  },
   referenceNumber: {
     type: String,
     trim: true
@@ -38,6 +44,6 @@ const purchaseOrderSchema = new Schema({
   timestamps: true
 });
 
-const PurchaseOrder = mongoose.model<IPurchaseOrder>('PurchaseOrder', purchaseOrderSchema);
+const PurchaseOrder = mongoose.models.PurchaseOrder || mongoose.model<IPurchaseOrder>('PurchaseOrder', purchaseOrderSchema);
 
 export default PurchaseOrder;

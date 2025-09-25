@@ -3,12 +3,16 @@ import { ISupplier } from './Supplier';
 
 export interface ISupplierLedger extends Document {
   supplierId: mongoose.Types.ObjectId;
-  transactionType: string; // purchase, payment
-  debit: number; // Amount you owe supplier decreases
-  credit: number; // Amount you owe supplier increases
-  balance: number; // The running balance after this transaction
+  transactionDate: Date;
+  transactionType: 'purchase' | 'payment' | 'return' | 'adjustment';
   referenceId: mongoose.Types.ObjectId; // e.g., purchaseOrderId or paymentId
+  referenceNumber: string; // Purchase order number or payment reference
+  debit: number; // Amount you owe supplier decreases (payments)
+  credit: number; // Amount you owe supplier increases (purchases)
+  balance: number; // The running balance after this transaction
+  notes?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 const supplierLedgerSchema = new Schema({
@@ -17,9 +21,23 @@ const supplierLedgerSchema = new Schema({
     ref: 'Supplier',
     required: true
   },
+  transactionDate: {
+    type: Date,
+    required: true,
+    default: Date.now
+  },
   transactionType: {
     type: String,
-    enum: ['purchase', 'payment'],
+    enum: ['purchase', 'payment', 'return', 'adjustment'],
+    required: true
+  },
+  referenceId: {
+    type: Schema.Types.ObjectId,
+    required: true
+    // No explicit ref - could be a purchase order or payment
+  },
+  referenceNumber: {
+    type: String,
     required: true
   },
   debit: {
@@ -38,17 +56,22 @@ const supplierLedgerSchema = new Schema({
     type: Number,
     required: true
   },
-  referenceId: {
-    type: Schema.Types.ObjectId,
-    required: true
+  notes: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true
 });
 
-supplierLedgerSchema.index({ supplierId: 1, createdAt: 1 });
+// Indexes for efficient queries and reporting
+supplierLedgerSchema.index({ supplierId: 1, transactionDate: -1 });
+supplierLedgerSchema.index({ supplierId: 1, balance: 1 });
+supplierLedgerSchema.index({ transactionDate: -1 });
 supplierLedgerSchema.index({ referenceId: 1 });
+supplierLedgerSchema.index({ referenceNumber: 1 });
 
-const SupplierLedger = mongoose.model<ISupplierLedger>('SupplierLedger', supplierLedgerSchema);
+const SupplierLedger = mongoose.models.SupplierLedger || 
+  mongoose.model<ISupplierLedger>('SupplierLedger', supplierLedgerSchema);
 
 export default SupplierLedger;

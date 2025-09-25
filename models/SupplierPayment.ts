@@ -37,6 +37,6 @@ const supplierPaymentSchema = new Schema({
 supplierPaymentSchema.index({ supplierId: 1 });
 supplierPaymentSchema.index({ paymentDate: 1 });
 
-const SupplierPayment = mongoose.model<ISupplierPayment>('SupplierPayment', supplierPaymentSchema);
+const SupplierPayment = mongoose.models.SupplierPayment || mongoose.model<ISupplierPayment>('SupplierPayment', supplierPaymentSchema);
 
 export default SupplierPayment;

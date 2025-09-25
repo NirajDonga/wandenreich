@@ -38,6 +38,6 @@ const purchaseOrderItemSchema = new Schema({
   }
 });
 
-const PurchaseOrderItem = mongoose.model<IPurchaseOrderItem>('PurchaseOrderItem', purchaseOrderItemSchema);
+const PurchaseOrderItem = mongoose.models.PurchaseOrderItem || mongoose.model<IPurchaseOrderItem>('PurchaseOrderItem', purchaseOrderItemSchema);
 
 export default PurchaseOrderItem;

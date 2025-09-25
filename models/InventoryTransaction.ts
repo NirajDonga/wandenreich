@@ -42,6 +42,6 @@ const inventoryTransactionSchema = new Schema({
   timestamps: true
 });
 
-const InventoryTransaction = mongoose.model<IInventoryTransaction>('InventoryTransaction', inventoryTransactionSchema);
+const InventoryTransaction = mongoose.models.InventoryTransaction || mongoose.model<IInventoryTransaction>('InventoryTransaction', inventoryTransactionSchema);
 
 export default InventoryTransaction;

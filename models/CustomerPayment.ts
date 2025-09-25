@@ -41,6 +41,6 @@ customerPaymentSchema.index({ salesOrderId: 1 });
 customerPaymentSchema.index({ customerId: 1 });
 customerPaymentSchema.index({ paymentDate: 1 });
 
-const CustomerPayment = mongoose.model<ICustomerPayment>('CustomerPayment', customerPaymentSchema);
+const CustomerPayment = mongoose.models.CustomerPayment || mongoose.model<ICustomerPayment>('CustomerPayment', customerPaymentSchema);
 
 export default CustomerPayment;

@@ -34,6 +34,7 @@ const inventorySchema = new Schema({
   }
 });
 
-const Inventory = mongoose.model<IInventory>('Inventory', inventorySchema);
+// Use the existing model if it exists, otherwise create a new one
+const Inventory = mongoose.models.Inventory || mongoose.model<IInventory>('Inventory', inventorySchema);
 
 export default Inventory;

@@ -39,6 +39,6 @@ const supplierSchema = new Schema({
 
 supplierSchema.index({ name: 1 });
 
-const Supplier = mongoose.model<ISupplier>('Supplier', supplierSchema);
+const Supplier = mongoose.models.Supplier || mongoose.model<ISupplier>('Supplier', supplierSchema);
 
 export default Supplier;

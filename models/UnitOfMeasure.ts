@@ -18,6 +18,6 @@ const unitOfMeasureSchema = new Schema({
   }
 });
 
-const UnitOfMeasure = mongoose.model<IUnitOfMeasure>('UnitOfMeasure', unitOfMeasureSchema);
+const UnitOfMeasure = mongoose.models.UnitOfMeasure || mongoose.model<IUnitOfMeasure>('UnitOfMeasure', unitOfMeasureSchema);
 
 export default UnitOfMeasure;

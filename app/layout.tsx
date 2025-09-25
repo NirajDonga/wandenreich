@@ -1,8 +1,9 @@
 import "./globals.css";
+import Providers from "@/components/providers/Providers";
 
 export const metadata = {
-  title: "",
-  description: "",
+  title: "Wandenreich - Business Management System",
+  description: "A comprehensive business management system for financial tracking and analytics",
 };
 
 export default function RootLayout({
@@ -12,8 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        {children}
+      <body className="antialiased">
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

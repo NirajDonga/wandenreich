@@ -44,10 +44,14 @@ const productVariantSchema = new Schema<IProductVariant>(
   }
 );
 
-productVariantSchema.index({ productId: 1 });
-productVariantSchema.index({ sku: 1 }, { unique: true });
-productVariantSchema.index({ sellingPrice: 1 });
+// Only create indexes if the model doesn't exist yet
+if (!mongoose.models.ProductVariant) {
+  productVariantSchema.index({ productId: 1 });
+  // SKU index is already created by unique: true in schema, no need to duplicate
+  productVariantSchema.index({ sellingPrice: 1 });
+}
 
-const ProductVariant = mongoose.model<IProductVariant>('ProductVariant', productVariantSchema);
+// Use the existing model if it exists, otherwise create a new one
+const ProductVariant = mongoose.models.ProductVariant || mongoose.model<IProductVariant>('ProductVariant', productVariantSchema);
 
 export default ProductVariant;
