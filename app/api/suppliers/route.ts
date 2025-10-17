@@ -1,75 +1,154 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { 
-  getSuppliers, 
-  createSupplier, 
-  updateSupplier 
-} from '../../../services/purchaseService';
-import connectDB from '../../../lib/mongodb';
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { connectDB } from '@/lib/mongodb';
+import Supplier from '@/lib/models/Supplier';
 
-export async function GET(request: NextRequest) {
+// GET all suppliers for logged in user
+export async function GET() {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const searchTerm = searchParams.get('search') || '';
-
-    const result = await getSuppliers(page, limit, searchTerm);
+    const session = await getServerSession(authOptions);
     
-    return NextResponse.json(result);
-  } catch (error: any) {
+    if (!session || !session.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectDB();
+
+    const suppliers = await Supplier.find({
+      userId: (session.user as { id: string }).id
+    }).sort({ createdAt: -1 });
+
+    return NextResponse.json({ suppliers });
+  } catch (error) {
     console.error('Error fetching suppliers:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch suppliers' },
+      { error: 'Failed to fetch suppliers' },
       { status: 500 }
     );
   }
 }
 
-export async function POST(request: NextRequest) {
+// POST - Create new supplier
+export async function POST(request: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session || !session.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     await connectDB();
-    
+
     const data = await request.json();
-    
-    // Validate required fields
-    if (!data.name) {
+    const { name, contactName, email, phone, address, gstin } = data;
+
+    // Validation
+    if (!name || !phone) {
       return NextResponse.json(
-        { error: 'Supplier name is required' },
+        { error: 'Supplier name and phone are required' },
         { status: 400 }
       );
     }
-    
-    const newSupplier = await createSupplier(data);
-    
-    return NextResponse.json(newSupplier, { status: 201 });
-  } catch (error: any) {
+
+    // Create supplier
+    const supplier = await Supplier.create({
+      userId: (session.user as { id: string }).id,
+      name,
+      contactName: contactName || undefined,
+      email: email || undefined,
+      phone,
+      address: address || undefined,
+      gstin: gstin || undefined
+    });
+
+    return NextResponse.json({ supplier }, { status: 201 });
+  } catch (error) {
     console.error('Error creating supplier:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to create supplier' },
+      { error: 'Failed to create supplier' },
       { status: 500 }
     );
   }
 }
 
-export async function PUT(request: NextRequest) {
+// PUT - Update supplier
+export async function PUT(request: Request) {
   try {
-    const data = await request.json();
-    const { id, ...supplierData } = data;
+    const session = await getServerSession(authOptions);
     
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Supplier ID is required' },
-        { status: 400 }
-      );
+    if (!session || !session.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    const updatedSupplier = await updateSupplier(id, supplierData);
-    
-    return NextResponse.json(updatedSupplier);
-  } catch (error: any) {
+
+    await connectDB();
+
+    const data = await request.json();
+    const { id, name, contactName, email, phone, address, gstin } = data;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Supplier ID is required' }, { status: 400 });
+    }
+
+    const supplier = await Supplier.findOneAndUpdate(
+      { _id: id, userId: (session.user as { id: string }).id },
+      {
+        ...(name && { name }),
+        ...(contactName !== undefined && { contactName }),
+        ...(email !== undefined && { email }),
+        ...(phone && { phone }),
+        ...(address !== undefined && { address }),
+        ...(gstin !== undefined && { gstin })
+      },
+      { new: true }
+    );
+
+    if (!supplier) {
+      return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ supplier });
+  } catch (error) {
     console.error('Error updating supplier:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to update supplier' },
+      { error: 'Failed to update supplier' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Delete supplier
+export async function DELETE(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session || !session.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectDB();
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Supplier ID is required' }, { status: 400 });
+    }
+
+    const supplier = await Supplier.findOneAndDelete({
+      _id: id,
+      userId: (session.user as { id: string }).id
+    });
+
+    if (!supplier) {
+      return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: 'Supplier deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting supplier:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete supplier' },
       { status: 500 }
     );
   }

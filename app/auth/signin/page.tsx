@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function SignInPage() {
+function SignInForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -13,8 +13,16 @@ export default function SignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const [successMessage, setSuccessMessage] = useState('');
+
   useEffect(() => {
     const errorParam = searchParams?.get('error');
+    const registeredParam = searchParams?.get('registered');
+    
+    if (registeredParam === 'true') {
+      setSuccessMessage('Account created successfully! Please sign in.');
+    }
+    
     if (errorParam) {
       if (errorParam.includes('Please register first')) {
         setError('Please register first before signing in with Google.');
@@ -41,7 +49,7 @@ export default function SignInPage() {
       } else {
         router.push('/dashboard');
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
@@ -117,6 +125,12 @@ export default function SignInPage() {
               </div>
             </div>
 
+            {successMessage && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl">
+                {successMessage}
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
                 {error}
@@ -167,7 +181,7 @@ export default function SignInPage() {
           {/* Footer */}
           <div className="mt-6 text-center">
             <p className="text-slate-600 text-sm">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <Link href="/auth/signup" className="text-blue-600 hover:text-blue-700 font-medium transition-colors">
                 Create one here
               </Link>
@@ -198,5 +212,13 @@ export default function SignInPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <SignInForm />
+    </Suspense>
   );
 }

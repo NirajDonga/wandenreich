@@ -1,32 +1,41 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wandenreich';
+const MONGODB_URI = process.env.MONGODB_URI!;
 
 if (!MONGODB_URI) {
-  throw new Error(
-    'Please define the MONGODB_URI environment variable inside .env.local'
-  );
+  throw new Error('Please define the MONGODB_URI environment variable');
 }
 
-// Track the connection state
-const connectionState = {
-  isConnected: false,
-};
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+}
 
-async function connectDB() {
-  // If already connected, return
-  if (connectionState.isConnected) {
-    return;
+declare global {
+  var mongoose: MongooseCache;
+}
+
+const cached: MongooseCache = global.mongoose || { conn: null, promise: null };
+
+if (!global.mongoose) {
+  global.mongoose = cached;
+}
+
+export async function connectDB() {
+  if (cached.conn) {
+    return cached.conn;
   }
 
-  // Connect to database
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI);
+  }
+
   try {
-    const db = await mongoose.connect(MONGODB_URI);
-    connectionState.isConnected = db.connections[0].readyState === 1;
-  } catch (error) {
-    console.error('MongoDB connection error:', error);
-    throw error;
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
   }
-}
 
-export default connectDB;
+  return cached.conn;
+}

@@ -2,8 +2,8 @@ import "./globals.css";
 import Providers from "@/components/providers/Providers";
 
 export const metadata = {
-  title: "Wandenreich - Business Management System",
-  description: "A comprehensive business management system for financial tracking and analytics",
+  title: "Wandenreich - Authentication System",
+  description: "A simple authentication system with NextAuth.js",
 };
 
 export default function RootLayout({
