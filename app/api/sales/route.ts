@@ -5,7 +5,7 @@ import { connectDB } from '@/lib/mongodb';
 import Sale from '@/lib/models/Sale';
 import ProductSimple from '@/lib/models/ProductSimple';
 import StockTransaction from '@/lib/models/StockTransaction';
-import mongoose from 'mongoose';
+import StockBatch from '@/lib/models/StockBatch';
 
 // GET - Fetch all sales for the logged-in user
 export async function GET() {
@@ -31,14 +31,9 @@ export async function GET() {
 
 // POST - Create a new sale
 export async function POST(request: NextRequest) {
-  const mongoSession = await mongoose.startSession();
-  mongoSession.startTransaction();
-
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -47,8 +42,6 @@ export async function POST(request: NextRequest) {
 
     // Validation
     if (!items || items.length === 0) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'At least one item is required' }, { status: 400 });
     }
 
@@ -62,13 +55,10 @@ export async function POST(request: NextRequest) {
       const { productId, quantity, sellingPrice } = item;
 
       if (!productId || !quantity || quantity <= 0) {
-        await mongoSession.abortTransaction();
-        mongoSession.endSession();
         return NextResponse.json({ error: 'Invalid item data' }, { status: 400 });
       }
 
       if (!sellingPrice || sellingPrice <= 0) {
-        await mongoSession.abortTransaction();
         return NextResponse.json({ 
           error: 'Selling price is required for each item' 
         }, { status: 400 });
@@ -78,17 +68,13 @@ export async function POST(request: NextRequest) {
       const product = await ProductSimple.findOne({
         _id: productId,
         userId: session.user.id
-      }).session(mongoSession);
+      });
 
       if (!product) {
-        await mongoSession.abortTransaction();
-        mongoSession.endSession();
         return NextResponse.json({ error: `Product not found: ${productId}` }, { status: 404 });
       }
 
       if (product.quantity < quantity) {
-        await mongoSession.abortTransaction();
-        mongoSession.endSession();
         return NextResponse.json({ 
           error: `Insufficient stock for ${product.name}. Available: ${product.quantity}` 
         }, { status: 400 });
@@ -103,27 +89,10 @@ export async function POST(request: NextRequest) {
         sellingPrice: sellingPrice,
         totalPrice: itemTotal
       });
-
-      // Update product stock
-      product.quantity -= quantity;
-      await product.save({ session: mongoSession });
-
-      // Create stock transaction
-      await StockTransaction.create([{
-        userId: session.user.id,
-        productId,
-        transactionType: 'sale',
-        quantity: -quantity, // Negative for outgoing stock
-        unitCost: 0, // For sales, we don't track cost here
-        unitPrice: sellingPrice,
-        balanceAfter: product.quantity,
-        reference: 'Sale', // Will update with sale ID after creation
-        notes: `Sale to ${customerId ? 'customer' : 'walk-in customer'}`
-      }], { session: mongoSession });
     }
 
-    // Create sale record
-    const sale = await Sale.create([{
+    // Create sale record first
+    const sale = await Sale.create({
       userId: session.user.id,
       customerId: customerId || null,
       items: saleItems,
@@ -133,30 +102,61 @@ export async function POST(request: NextRequest) {
       paymentMethod: paymentMethod || 'cash',
       paymentStatus: (amountPaid >= totalAmount) ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid'),
       notes
-    }], { session: mongoSession });
+    });
 
-    // Update stock transaction reference with sale ID
-    await StockTransaction.updateMany(
-      {
-        userId: session.user.id,
-        reference: 'Sale',
-        createdAt: { $gte: new Date(Date.now() - 5000) } // Within last 5 seconds
-      },
-      { reference: sale[0]._id.toString() },
-      { session: mongoSession }
-    );
+    // Update stock and create transactions for each item
+    for (const item of items) {
+      const { productId, quantity, sellingPrice } = item;
+      let remainingQuantity = quantity;
 
-    await mongoSession.commitTransaction();
-    mongoSession.endSession();
+      // Update product stock
+      const product = await ProductSimple.findOne({
+        _id: productId,
+        userId: session.user.id
+      });
+
+      if (product) {
+        product.quantity -= quantity;
+        await product.save();
+
+        // Deduct from stock batches using FIFO (oldest first)
+        const batches = await StockBatch.find({
+          userId: session.user.id,
+          productId,
+          quantity: { $gt: 0 }
+        }).sort({ purchaseDate: 1 }); // Oldest first
+
+        for (const batch of batches) {
+          if (remainingQuantity <= 0) break;
+
+          const deductFromBatch = Math.min(batch.quantity, remainingQuantity);
+          batch.quantity -= deductFromBatch;
+          remainingQuantity -= deductFromBatch;
+          await batch.save();
+        }
+
+        // Create stock transaction
+        await StockTransaction.create({
+          userId: session.user.id,
+          productId,
+          transactionType: 'sale',
+          quantity: -quantity, // Negative for outgoing stock
+          unitCost: 0,
+          unitPrice: sellingPrice,
+          balanceAfter: product.quantity,
+          referenceId: sale._id,
+          referenceModel: 'Sale',
+          notes: `Sale to ${customerId ? 'customer' : 'walk-in customer'}`
+        });
+      }
+    }
 
     return NextResponse.json({ 
       message: 'Sale created successfully', 
-      sale: sale[0] 
+      sale 
     }, { status: 201 });
 
   } catch (error) {
-    await mongoSession.abortTransaction();
-    mongoSession.endSession();
     console.error('Error creating sale:', error);
     return NextResponse.json({ error: 'Failed to create sale' }, { status: 500 });
   }
@@ -225,14 +225,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - Delete a sale (admin only, reverses stock)
 export async function DELETE(request: NextRequest) {
-  const mongoSession = await mongoose.startSession();
-  mongoSession.startTransaction();
-
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -240,8 +235,6 @@ export async function DELETE(request: NextRequest) {
     const saleId = searchParams.get('id');
 
     if (!saleId) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Sale ID is required' }, { status: 400 });
     }
 
@@ -250,11 +243,9 @@ export async function DELETE(request: NextRequest) {
     const sale = await Sale.findOne({
       _id: saleId,
       userId: session.user.id
-    }).session(mongoSession);
+    });
 
     if (!sale) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
 
@@ -263,15 +254,15 @@ export async function DELETE(request: NextRequest) {
       const product = await ProductSimple.findOne({
         _id: item.productId,
         userId: session.user.id
-      }).session(mongoSession);
+      });
 
       if (product) {
         // Add stock back
         product.quantity += item.quantity;
-        await product.save({ session: mongoSession });
+        await product.save();
 
         // Create reversal stock transaction
-        await StockTransaction.create([{
+        await StockTransaction.create({
           userId: session.user.id,
           productId: item.productId,
           transactionType: 'adjustment',
@@ -279,25 +270,21 @@ export async function DELETE(request: NextRequest) {
           unitCost: 0,
           unitPrice: item.sellingPrice,
           balanceAfter: product.quantity,
-          reference: saleId,
+          referenceId: saleId,
+          referenceModel: 'Sale',
           notes: `Sale reversal - Sale ID: ${saleId}`
-        }], { session: mongoSession });
+        });
       }
     }
 
     // Delete the sale
-    await Sale.deleteOne({ _id: saleId }).session(mongoSession);
-
-    await mongoSession.commitTransaction();
-    mongoSession.endSession();
+    await Sale.deleteOne({ _id: saleId });
 
     return NextResponse.json({ 
       message: 'Sale deleted and stock reversed successfully' 
     }, { status: 200 });
 
   } catch (error) {
-    await mongoSession.abortTransaction();
-    mongoSession.endSession();
     console.error('Error deleting sale:', error);
     return NextResponse.json({ error: 'Failed to delete sale' }, { status: 500 });
   }

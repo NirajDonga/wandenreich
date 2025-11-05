@@ -39,6 +39,8 @@ export default function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -69,6 +71,32 @@ export default function SalesPage() {
     }
   };
 
+  const handleDelete = async (saleId: string) => {
+    if (!confirm('Are you sure you want to delete this sale? This will reverse the stock changes.')) {
+      return;
+    }
+
+    try {
+      setDeletingId(saleId);
+      const response = await fetch(`/api/sales?id=${saleId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete sale');
+      }
+
+      // Refresh the list
+      await fetchSales();
+      alert('Sale deleted successfully!');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete sale');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-IN', {
@@ -78,15 +106,6 @@ export default function SalesPage() {
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
-
-  const getPaymentStatusBadge = (status: string) => {
-    const styles = {
-      paid: 'bg-green-100 text-green-700 border-green-300',
-      partial: 'bg-orange-100 text-orange-700 border-orange-300',
-      unpaid: 'bg-red-100 text-red-700 border-red-300'
-    };
-    return styles[status as keyof typeof styles] || styles.unpaid;
   };
 
   if (status === 'loading' || loading) {
@@ -166,9 +185,6 @@ export default function SalesPage() {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Customer</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Items</th>
                     <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Total</th>
-                    <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Paid</th>
-                    <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Balance</th>
-                    <th className="px-6 py-4 text-center text-sm font-semibold text-slate-700">Status</th>
                     <th className="px-6 py-4 text-center text-sm font-semibold text-slate-700">Actions</th>
                   </tr>
                 </thead>
@@ -208,27 +224,22 @@ export default function SalesPage() {
                       <td className="px-6 py-4 text-right font-semibold text-slate-800">
                         ₹{sale.totalAmount.toFixed(2)}
                       </td>
-                      <td className="px-6 py-4 text-right text-slate-600">
-                        ₹{sale.amountPaid.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {sale.balanceDue > 0 ? (
-                          <span className="text-orange-600 font-medium">
-                            ₹{sale.balanceDue.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-green-600">₹0.00</span>
-                        )}
-                      </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(sale.paymentStatus)}`}>
-                          {sale.paymentStatus.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <button className="text-purple-600 hover:text-purple-800 font-medium text-sm">
-                          View
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => setSelectedSale(sale)}
+                            className="text-blue-600 hover:text-blue-800 font-medium text-sm cursor-pointer"
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => handleDelete(sale._id)}
+                            disabled={deletingId === sale._id}
+                            className="text-red-600 hover:text-red-800 font-medium text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingId === sale._id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -240,7 +251,7 @@ export default function SalesPage() {
 
         {/* Summary Stats */}
         {sales.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
             <div className="bg-white/90 backdrop-blur-lg rounded-xl p-6 border border-purple-200/50 shadow-lg">
               <div className="text-sm text-slate-600 mb-1">Total Sales</div>
               <div className="text-2xl font-bold text-purple-600">{sales.length}</div>
@@ -251,21 +262,124 @@ export default function SalesPage() {
                 ₹{sales.reduce((sum, s) => sum + s.totalAmount, 0).toFixed(2)}
               </div>
             </div>
-            <div className="bg-white/90 backdrop-blur-lg rounded-xl p-6 border border-green-200/50 shadow-lg">
-              <div className="text-sm text-slate-600 mb-1">Amount Received</div>
-              <div className="text-2xl font-bold text-green-600">
-                ₹{sales.reduce((sum, s) => sum + s.amountPaid, 0).toFixed(2)}
-              </div>
-            </div>
-            <div className="bg-white/90 backdrop-blur-lg rounded-xl p-6 border border-orange-200/50 shadow-lg">
-              <div className="text-sm text-slate-600 mb-1">Pending Balance</div>
-              <div className="text-2xl font-bold text-orange-600">
-                ₹{sales.reduce((sum, s) => sum + s.balanceDue, 0).toFixed(2)}
-              </div>
-            </div>
           </div>
         )}
       </main>
+
+      {/* Sale Details Modal */}
+      {selectedSale && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-purple-500 text-white p-6 rounded-t-2xl">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-2xl font-bold mb-2">Sale Details</h3>
+                  <p className="text-purple-100">
+                    {formatDate(selectedSale.createdAt)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedSale(null)}
+                  className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Customer Info */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <h4 className="font-semibold text-slate-700 mb-3">Customer Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm text-slate-600">Name:</span>
+                    <p className="font-medium text-slate-800">
+                      {selectedSale.customerId ? selectedSale.customerId.name : 'Walk-in Customer'}
+                    </p>
+                  </div>
+                  {selectedSale.customerId?.phone && (
+                    <div>
+                      <span className="text-sm text-slate-600">Phone:</span>
+                      <p className="font-medium text-slate-800">{selectedSale.customerId.phone}</p>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-sm text-slate-600">Date:</span>
+                    <p className="font-medium text-slate-800">{formatDate(selectedSale.createdAt)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <h4 className="font-semibold text-slate-700 mb-3">Items</h4>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Product</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Quantity</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Unit Price</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {selectedSale.items.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-slate-800">{item.productId.name}</td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {item.quantity} {item.productId.unitOfMeasure}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">₹{item.sellingPrice.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-medium text-slate-800">
+                            ₹{item.totalPrice.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Payment Summary */}
+              <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+                <h4 className="font-semibold text-slate-700 mb-3">Summary</h4>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">Total Amount:</span>
+                  <span className="font-semibold text-lg text-slate-800">₹{selectedSale.totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-slate-600">Payment Method:</span>
+                  <span className="font-medium text-slate-800 uppercase">{selectedSale.paymentMethod}</span>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {selectedSale.notes && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <h4 className="font-semibold text-slate-700 mb-2">Notes</h4>
+                  <p className="text-slate-600">{selectedSale.notes}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 p-6 rounded-b-2xl flex justify-end gap-3">
+              <button
+                onClick={() => setSelectedSale(null)}
+                className="px-6 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

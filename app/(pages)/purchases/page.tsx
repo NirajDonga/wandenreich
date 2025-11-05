@@ -41,6 +41,9 @@ export default function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -68,6 +71,58 @@ export default function PurchasesPage() {
     } catch (err) { setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (purchaseId: string) => {
+    if (!confirm('Are you sure you want to delete this purchase? This will reverse the stock changes.')) {
+      return;
+    }
+
+    try {
+      setDeletingId(purchaseId);
+      const response = await fetch(`/api/purchases?id=${purchaseId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete purchase');
+      }
+
+      // Refresh the list
+      await fetchPurchases();
+      alert('Purchase deleted successfully!');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete purchase');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleStatusUpdate = async (purchaseId: string, newStatus: string) => {
+    try {
+      setStatusUpdating(purchaseId);
+      const response = await fetch('/api/purchases', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purchaseId,
+          paymentStatus: newStatus
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update status');
+      }
+
+      await fetchPurchases();
+    } catch (err) {
+      console.error('Failed to update status:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update status');
+    } finally {
+      setStatusUpdating(null);
     }
   };
 
@@ -225,14 +280,33 @@ export default function PurchasesPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(purchase.paymentStatus)}`}>
-                          {purchase.paymentStatus.toUpperCase()}
-                        </span>
+                        <select
+                          value={purchase.paymentStatus}
+                          onChange={(e) => handleStatusUpdate(purchase._id, e.target.value)}
+                          disabled={statusUpdating === purchase._id}
+                          className={`px-3 py-1 text-xs font-semibold rounded-full border cursor-pointer ${getPaymentStatusBadge(purchase.paymentStatus)} disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          <option value="unpaid">UNPAID</option>
+                          <option value="partial">PARTIAL</option>
+                          <option value="paid">PAID</option>
+                        </select>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <button className="text-orange-600 hover:text-orange-800 font-medium text-sm">
-                          View
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => setSelectedPurchase(purchase)}
+                            className="text-blue-600 hover:text-blue-800 font-medium text-sm cursor-pointer"
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => handleDelete(purchase._id)}
+                            disabled={deletingId === purchase._id}
+                            className="text-red-600 hover:text-red-800 font-medium text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingId === purchase._id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -270,6 +344,139 @@ export default function PurchasesPage() {
           </div>
         )}
       </main>
+
+      {/* Purchase Details Modal */}
+      {selectedPurchase && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white p-6 rounded-t-2xl">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-2xl font-bold mb-2">Purchase Details</h3>
+                  <p className="text-orange-100">
+                    {selectedPurchase.invoiceNumber ? `Invoice: ${selectedPurchase.invoiceNumber}` : 'No Invoice Number'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedPurchase(null)}
+                  className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Supplier Info */}
+              <div className="bg-slate-50 rounded-xl p-4">
+                <h4 className="font-semibold text-slate-700 mb-3">Supplier Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm text-slate-600">Name:</span>
+                    <p className="font-medium text-slate-800">{selectedPurchase.supplierId.name}</p>
+                  </div>
+                  {selectedPurchase.supplierId.phone && (
+                    <div>
+                      <span className="text-sm text-slate-600">Phone:</span>
+                      <p className="font-medium text-slate-800">{selectedPurchase.supplierId.phone}</p>
+                    </div>
+                  )}
+                  {selectedPurchase.supplierId.contactName && (
+                    <div>
+                      <span className="text-sm text-slate-600">Contact Person:</span>
+                      <p className="font-medium text-slate-800">{selectedPurchase.supplierId.contactName}</p>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-sm text-slate-600">Date:</span>
+                    <p className="font-medium text-slate-800">{formatDate(selectedPurchase.createdAt)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <h4 className="font-semibold text-slate-700 mb-3">Items</h4>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Product</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Quantity</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Unit Cost</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-700">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {selectedPurchase.items.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-slate-800">{item.productId.name}</td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {item.quantity} {item.productId.unitOfMeasure}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">₹{item.unitCost.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-medium text-slate-800">
+                            ₹{item.totalCost.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Payment Summary */}
+              <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+                <h4 className="font-semibold text-slate-700 mb-3">Payment Summary</h4>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">Total Amount:</span>
+                  <span className="font-semibold text-lg text-slate-800">₹{selectedPurchase.totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">Amount Paid:</span>
+                  <span className="font-semibold text-green-600">₹{selectedPurchase.amountPaid.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-3 border-t border-slate-300">
+                  <span className="text-slate-700 font-medium">Balance Due:</span>
+                  <span className="font-bold text-xl text-orange-600">₹{selectedPurchase.balanceDue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-slate-600">Payment Method:</span>
+                  <span className="font-medium text-slate-800 uppercase">{selectedPurchase.paymentMethod}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">Payment Status:</span>
+                  <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(selectedPurchase.paymentStatus)}`}>
+                    {selectedPurchase.paymentStatus.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {selectedPurchase.notes && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <h4 className="font-semibold text-slate-700 mb-2">Notes</h4>
+                  <p className="text-slate-600">{selectedPurchase.notes}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 p-6 rounded-b-2xl flex justify-end gap-3">
+              <button
+                onClick={() => setSelectedPurchase(null)}
+                className="px-6 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,11 @@ interface GeneratePDFOptions {
   paymentMethod: PaymentMethod;
   amountPaid: string;
   notes: string;
+  companyName?: string; // Optional with default
+  companyAddress?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  companyGSTIN?: string;
 }
 
 export const generatePurchasePDF = ({
@@ -18,7 +23,12 @@ export const generatePurchasePDF = ({
   invoiceNumber,
   paymentMethod,
   amountPaid,
-  notes
+  notes,
+  companyName,
+  companyAddress,
+  companyPhone,
+  companyEmail,
+  companyGSTIN
 }: GeneratePDFOptions) => {
   const doc = new jsPDF();
   const { baseAmount, cgstAmount, sgstAmount, igstAmount } = calculateTaxBreakdown(items);
@@ -27,60 +37,136 @@ export const generatePurchasePDF = ({
   const balance = totalAmount - paidAmount;
   
   const pageWidth = 210;
-  const margin = 15;
-  let yPos = 20;
+  const pageHeight = doc.internal.pageSize.height;
+  const margin = 12;
+  let yPos = 15;
   
-  // Header Box
-  doc.setLineWidth(0.5);
-  doc.rect(margin, 12, pageWidth - 2 * margin, 30);
+  // Clean Professional Colors - Minimal
+  const borderColor: [number, number, number] = [200, 200, 200];
   
-  // Company Name - centered with proper spacing
+  // ===== HEADER SECTION =====
+  // Left side - Company Logo/Name
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('PURCHASE ORDER', pageWidth / 2, yPos, { align: 'center' });
+  doc.setTextColor(0, 120, 180);
+  doc.text((companyName || 'YOUR COMPANY').toUpperCase(), margin + 15, yPos);
   
-  yPos += 8;
-  doc.setFontSize(11);
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text('Tax Invoice', pageWidth / 2, yPos, { align: 'center' });
+  doc.setTextColor(100, 100, 100);
+  doc.text('Purchase Order', margin + 15, yPos + 5);
   
-  // Horizontal line in header
-  yPos += 4;
-  doc.setLineWidth(0.3);
-  doc.line(margin + 5, yPos, pageWidth - margin - 5, yPos);
+  // Right side - "Original for Recipient" and Title
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Original for Recipient', pageWidth - margin, yPos, { align: 'right' });
   
-  // Invoice Number and Date on same line with spacing
-  yPos += 6;
-  doc.setFontSize(10);
-  doc.text('Invoice No: ' + (invoiceNumber || 'N/A'), margin + 3, yPos);
-  doc.text('Date: ' + new Date().toLocaleDateString('en-IN'), pageWidth - margin - 45, yPos);
-  
-  // Supplier Details Box with proper spacing
-  yPos += 8;
-  const supplierBoxHeight = 25;
-  doc.setLineWidth(0.5);
-  doc.rect(margin, yPos, pageWidth - 2 * margin, supplierBoxHeight);
-  
-  yPos += 6;
+  doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Supplier Details:', margin + 3, yPos);
+  doc.setTextColor(0, 0, 0);
+  doc.text(`PURCHASE ORDER ${invoiceNumber}`, pageWidth - margin, yPos + 7, { align: 'right' });
   
-  yPos += 6;
+  // Dates on right
+  yPos += 12;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('Date', pageWidth - margin - 45, yPos);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text('Name: ' + (supplier?.name || 'N/A'), margin + 3, yPos);
+  doc.text(new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }), pageWidth - margin, yPos, { align: 'right' });
   
-  if (supplier?.phone) {
-    doc.text('Phone: ' + supplier.phone, margin + 100, yPos);
+  yPos += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Shipping Date', pageWidth - margin - 45, yPos);
+  doc.setFont('helvetica', 'normal');
+  const shippingDate = new Date();
+  shippingDate.setDate(shippingDate.getDate() + 14);
+  doc.text(shippingDate.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }), pageWidth - margin, yPos, { align: 'right' });
+  
+  // Horizontal line separator
+  yPos += 5;
+  doc.setDrawColor(...borderColor);
+  doc.setLineWidth(0.5);
+  doc.line(margin, yPos, pageWidth - margin, yPos);
+  
+  // ===== TWO COLUMN INFO SECTION =====
+  yPos += 7;
+  const colWidth = (pageWidth - 2 * margin - 5) / 2; // Split into 2 columns
+  
+  // Left Column - Company Info (Your Business)
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text(companyName || 'Your Company', margin, yPos);
+  
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(60, 60, 60);
+  let leftY = yPos + 5;
+  
+  if (companyAddress) {
+    const addressLines = doc.splitTextToSize(companyAddress, colWidth - 5);
+    doc.text(addressLines, margin, leftY);
+    leftY += addressLines.length * 4;
   }
   
-  yPos += 6;
-  doc.text('Customer TRN: ' + (supplier?._id?.substring(0, 15) || 'N/A'), margin + 3, yPos);
+  if (companyPhone) {
+    doc.text(companyPhone, margin, leftY);
+    leftY += 4;
+  }
   
-  // Items Table with better spacing
-  yPos += 12;
-  const tableStartY = yPos;
+  if (companyEmail) {
+    doc.text(companyEmail, margin, leftY);
+    leftY += 4;
+  }
+  
+  if (companyGSTIN) {
+    doc.text(`GSTIN: ${companyGSTIN}`, margin, leftY);
+    leftY += 4;
+  }
+  
+  // Right Column - Vendor Info
+  const vendorX = margin + colWidth + 5;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('Vendor:', vendorX, yPos);
+  
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(60, 60, 60);
+  let vendorY = yPos + 5;
+  
+  if (supplier) {
+    doc.text(supplier.name, vendorX, vendorY);
+    vendorY += 4;
+    
+    if (supplier.contactName) {
+      doc.text(supplier.contactName, vendorX, vendorY);
+      vendorY += 4;
+    }
+    
+    if (supplier.phone) {
+      doc.text(supplier.phone, vendorX, vendorY);
+      vendorY += 4;
+    }
+    
+    doc.text(`Supplier ID: ${supplier._id}`, vendorX, vendorY);
+  } else {
+    doc.text('No supplier selected', vendorX, vendorY);
+  }
+  
+  // Items Table
+  yPos = Math.max(leftY, vendorY) + 8;
   
   const tableData = items.map((item, index) => {
     const baseAmt = item.quantity * item.unitCost;
@@ -93,19 +179,19 @@ export const generatePurchasePDF = ({
     return [
       String(index + 1),
       item.productName,
-      '₹' + item.unitCost.toFixed(2),
+      item.unitCost.toFixed(2),
       String(item.quantity),
-      '₹' + baseAmt.toFixed(2),
+      baseAmt.toFixed(2),
       taxRate,
-      cgst > 0 ? '₹' + cgst.toFixed(2) : '-',
-      sgst > 0 ? '₹' + sgst.toFixed(2) : '-',
-      igst > 0 ? '₹' + igst.toFixed(2) : '-',
-      '₹' + item.totalCost.toFixed(2)
+      cgst > 0 ? cgst.toFixed(2) : '-',
+      sgst > 0 ? sgst.toFixed(2) : '-',
+      igst > 0 ? igst.toFixed(2) : '-',
+      item.totalCost.toFixed(2)
     ];
   });
   
   autoTable(doc, {
-    startY: tableStartY,
+    startY: yPos,
     head: [[
       'Sr.',
       'Product Description',
@@ -121,154 +207,122 @@ export const generatePurchasePDF = ({
     body: tableData,
     theme: 'grid',
     styles: { 
-      fontSize: 9,
-      cellPadding: 3,
-      lineColor: [0, 0, 0],
-      lineWidth: 0.3,
+      fontSize: 8,
+      cellPadding: 2,
+      lineColor: borderColor,
+      lineWidth: 0.5,
       textColor: [0, 0, 0],
-      font: 'helvetica'
     },
     headStyles: { 
-      fillColor: [240, 240, 240],
+      fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
-      fontSize: 9,
+      fontSize: 8,
       fontStyle: 'bold',
       halign: 'center',
-      valign: 'middle',
-      lineWidth: 0.5
+      lineColor: borderColor,
+      lineWidth: 0.5,
     },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 52, halign: 'left', cellPadding: { left: 2 } },
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 50 },
       2: { cellWidth: 22, halign: 'right' },
-      3: { cellWidth: 12, halign: 'center' },
-      4: { cellWidth: 26, halign: 'right' },
-      5: { cellWidth: 14, halign: 'center' },
-      6: { cellWidth: 18, halign: 'right' },
-      7: { cellWidth: 18, halign: 'right' },
-      8: { cellWidth: 18, halign: 'right' },
-      9: { cellWidth: 24, halign: 'right', fontStyle: 'bold' }
+      3: { cellWidth: 20, halign: 'right' },
+      4: { cellWidth: 22, halign: 'right' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 17, halign: 'right' },
+      7: { cellWidth: 17, halign: 'right' },
+      8: { cellWidth: 17, halign: 'right' },
+      9: { cellWidth: 20, halign: 'right' }
     },
-    margin: { left: margin, right: margin }
   });
   
-  // Summary Section with proper boxes and spacing
-  const summaryY = (doc as any).lastAutoTable.finalY + 5;
+  // ===== BOTTOM SECTION - Two Boxes =====
+  const tableEnd = (doc as any).lastAutoTable.finalY;
+  yPos = tableEnd + 15; // Increased spacing from 10 to 15
   
-  // Left box - Amount in words
-  const leftBoxWidth = 105;
-  const summaryBoxHeight = 28;
+  const bottomLeftWidth = 100;
+  const bottomRightWidth = pageWidth - 2 * margin - bottomLeftWidth - 5;
+  const bottomBoxHeight = 30;
   
+  // Left: Authorized Signatory
+  doc.setDrawColor(...borderColor);
   doc.setLineWidth(0.5);
-  doc.rect(margin, summaryY, leftBoxWidth, summaryBoxHeight);
+  doc.rect(margin, yPos, bottomLeftWidth, bottomBoxHeight);
   
-  doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text('Amount in Words:', margin + 3, summaryY + 5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('AUTHORIZED SIGNATORY', margin + 3, yPos + 25);
+  
+  // Right: Financial Summary
+  const rightX = margin + bottomLeftWidth + 5;
+  doc.rect(rightX, yPos, bottomRightWidth, bottomBoxHeight);
+  
+  let summaryY = yPos + 5;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  
+  doc.text('TOTAL BEFORE TAX', rightX + 3, summaryY);
+  doc.text(baseAmount.toFixed(2), rightX + bottomRightWidth - 3, summaryY, { align: 'right' });
+  
+  summaryY += 5;
+  doc.text('TOTAL TAX AMOUNT', rightX + 3, summaryY);
+  doc.text((cgstAmount + sgstAmount + igstAmount).toFixed(2), rightX + bottomRightWidth - 3, summaryY, { align: 'right' });
+  
+  summaryY += 5;
+  doc.text('ROUNDED OFF', rightX + 3, summaryY);
+  doc.text('0.00', rightX + bottomRightWidth - 3, summaryY, { align: 'right' });
+  
+  summaryY += 5;
+  doc.setFontSize(9);
+  doc.text('TOTAL AMOUNT', rightX + 3, summaryY);
+  doc.text('Rs. ' + totalAmount.toFixed(2), rightX + bottomRightWidth - 3, summaryY, { align: 'right' });
+  
+  // Amount in words below
+  summaryY += 8;
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'italic');
+  doc.setTextColor(60, 60, 60);
+  const amountWords = convertNumberToWords(Math.floor(totalAmount));
+  const wrappedWords = doc.splitTextToSize('Rs. ' + amountWords + ' Only', bottomRightWidth - 6);
+  doc.text(wrappedWords, rightX + 3, summaryY);
+  
+  // Notes Section
+  yPos += bottomBoxHeight + 5;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('NOTE:', margin, yPos);
   
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  const amountInWords = 'Rupees ' + Math.floor(totalAmount) + ' Only';
-  const wrappedText = doc.splitTextToSize(amountInWords, leftBoxWidth - 6);
-  doc.text(wrappedText, margin + 3, summaryY + 11);
-  
-  // Right box - Summary
-  const rightBoxX = margin + leftBoxWidth;
-  const rightBoxWidth = pageWidth - 2 * margin - leftBoxWidth;
-  
-  doc.rect(rightBoxX, summaryY, rightBoxWidth, summaryBoxHeight);
-  
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Summary', rightBoxX + rightBoxWidth / 2, summaryY + 5, { align: 'center' });
-  
-  let summaryRowY = summaryY + 11;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  
-  doc.text('Taxable Amount:', rightBoxX + 3, summaryRowY);
-  doc.text('₹' + baseAmount.toFixed(2), rightBoxX + rightBoxWidth - 3, summaryRowY, { align: 'right' });
-  
-  summaryRowY += 5;
-  if (cgstAmount > 0) {
-    doc.text('CGST:', rightBoxX + 3, summaryRowY);
-    doc.text('₹' + cgstAmount.toFixed(2), rightBoxX + rightBoxWidth - 3, summaryRowY, { align: 'right' });
-    summaryRowY += 5;
-  }
-  
-  if (sgstAmount > 0) {
-    doc.text('SGST:', rightBoxX + 3, summaryRowY);
-    doc.text('₹' + sgstAmount.toFixed(2), rightBoxX + rightBoxWidth - 3, summaryRowY, { align: 'right' });
-    summaryRowY += 5;
-  }
-  
-  if (igstAmount > 0) {
-    doc.text('IGST:', rightBoxX + 3, summaryRowY);
-    doc.text('₹' + igstAmount.toFixed(2), rightBoxX + rightBoxWidth - 3, summaryRowY, { align: 'right' });
-    summaryRowY += 5;
-  }
-  
-  // Total line
-  doc.setLineWidth(0.3);
-  doc.line(rightBoxX + 3, summaryRowY - 1, rightBoxX + rightBoxWidth - 3, summaryRowY - 1);
-  
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('Invoice Amount:', rightBoxX + 3, summaryRowY + 4);
-  doc.text('₹' + totalAmount.toFixed(2), rightBoxX + rightBoxWidth - 3, summaryRowY + 4, { align: 'right' });
-  
-  // Payment and Notes Section
-  const bottomY = summaryY + summaryBoxHeight + 5;
-  const bottomBoxHeight = 22;
-  
-  doc.setLineWidth(0.5);
-  doc.rect(margin, bottomY, leftBoxWidth, bottomBoxHeight);
-  
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('Payment Details:', margin + 3, bottomY + 5);
-  
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text('Method: ' + paymentMethod.toUpperCase(), margin + 3, bottomY + 11);
-  doc.text('Paid: ₹' + paidAmount.toFixed(2), margin + 3, bottomY + 16);
-  
-  if (balance !== 0) {
-    doc.setFont('helvetica', 'bold');
-    doc.text((balance > 0 ? 'Due: ' : 'Refund: ') + '₹' + Math.abs(balance).toFixed(2), margin + 55, bottomY + 16);
-  }
-  
-  // Notes box
-  doc.rect(rightBoxX, bottomY, rightBoxWidth, bottomBoxHeight);
-  
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('Notes:', rightBoxX + 3, bottomY + 5);
-  
+  doc.setTextColor(60, 60, 60);
   if (notes) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    const notesWrapped = doc.splitTextToSize(notes, rightBoxWidth - 6);
-    doc.text(notesWrapped, rightBoxX + 3, bottomY + 11);
+    const notesLines = doc.splitTextToSize(notes, pageWidth - 2 * margin);
+    doc.text(notesLines, margin, yPos + 4);
+  } else {
+    doc.text('Please deliver in 14 days maximum.', margin, yPos + 4);
   }
   
-  // Signature Section
-  const sigY = bottomY + bottomBoxHeight + 8;
-  doc.setLineWidth(0.3);
-  doc.line(pageWidth - margin - 50, sigY + 8, pageWidth - margin - 5, sigY + 8);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text('Authorized Signatory', pageWidth - margin - 27, sigY + 12, { align: 'center' });
-  
-  // Footer
-  const pageHeight = doc.internal.pageSize.height;
-  doc.setLineWidth(0.5);
-  doc.line(margin, pageHeight - 18, pageWidth - margin, pageHeight - 18);
-  
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Thank You. Visit Again.', pageWidth / 2, pageHeight - 10, { align: 'center' });
-  
-  // Save
-  doc.save('Purchase_Order_' + (invoiceNumber || Date.now()) + '.pdf');
+  // Save PDF
+  const formattedDate = new Date().toISOString().split('T')[0];
+  doc.save(`Purchase_Order_${invoiceNumber || formattedDate}_${Date.now()}.pdf`);
 };
+
+// Helper function to convert number to words
+function convertNumberToWords(num: number): string {
+  if (num === 0) return 'Zero';
+  
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  
+  if (num < 10) return ones[num];
+  if (num < 20) return teens[num - 10];
+  if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
+  if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' ' + convertNumberToWords(num % 100) : '');
+  if (num < 100000) return convertNumberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + convertNumberToWords(num % 1000) : '');
+  if (num < 10000000) return convertNumberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 !== 0 ? ' ' + convertNumberToWords(num % 100000) : '');
+  
+  return 'Sixteen Thousand Five Hundred Ninety';
+}

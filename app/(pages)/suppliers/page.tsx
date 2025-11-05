@@ -14,6 +14,7 @@ interface Supplier {
   address?: string;
   gstin?: string;
   createdAt: string;
+  balanceDue?: number;
 }
 
 export default function SuppliersPage() {
@@ -22,6 +23,8 @@ export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [totalPayable, setTotalPayable] = useState(0);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -38,15 +41,34 @@ export default function SuppliersPage() {
   const fetchSuppliers = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/suppliers');
+      const [suppliersRes, purchasesRes] = await Promise.all([
+        fetch('/api/suppliers'),
+        fetch('/api/purchases')
+      ]);
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch suppliers');
+      if (!suppliersRes.ok || !purchasesRes.ok) {
+        throw new Error('Failed to fetch data');
       }
 
-      const data = await response.json();
-      setSuppliers(data.suppliers || []);
-    } catch (err) { setError(err instanceof Error ? err.message : 'An error occurred');
+      const suppliersData = await suppliersRes.json();
+      const purchasesData = await purchasesRes.json();
+      
+      const purchases = purchasesData.purchases || [];
+      
+      // Calculate balance due for each supplier
+      const suppliersWithBalance = (suppliersData.suppliers || []).map((supplier: Supplier) => {
+        const supplierPurchases = purchases.filter((p: any) => p.supplierId._id === supplier._id);
+        const balanceDue = supplierPurchases.reduce((sum: number, p: any) => sum + (p.balanceDue || 0), 0);
+        return { ...supplier, balanceDue };
+      });
+      
+      setSuppliers(suppliersWithBalance);
+      
+      // Calculate total payable
+      const total = suppliersWithBalance.reduce((sum: number, s: Supplier) => sum + (s.balanceDue || 0), 0);
+      setTotalPayable(total);
+    } catch (err) { 
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -96,6 +118,24 @@ export default function SuppliersPage() {
           <p className="text-slate-600">Manage your supplier directory</p>
         </div>
 
+        {/* Total Payable Banner */}
+        {totalPayable > 0 && (
+          <div className="mb-6 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-orange-100 text-sm font-medium mb-1">💳 Total Amount You Owe</p>
+                <p className="text-4xl font-bold">₹{totalPayable.toFixed(2)}</p>
+                <p className="text-orange-100 text-sm mt-2">Outstanding balance across all suppliers</p>
+              </div>
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6">
             {error}
@@ -130,6 +170,7 @@ export default function SuppliersPage() {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Phone</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Email</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">GSTIN</th>
+                    <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">You Owe</th>
                     <th className="px-6 py-4 text-center text-sm font-semibold text-slate-700">Actions</th>
                   </tr>
                 </thead>
@@ -158,8 +199,16 @@ export default function SuppliersPage() {
                           <span className="text-slate-400">-</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`text-sm font-semibold ${(supplier.balanceDue || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          ₹{(supplier.balanceDue || 0).toFixed(2)}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-center">
-                        <button className="text-blue-600 hover:text-blue-800 font-medium text-sm">
+                        <button
+                          onClick={() => setSelectedSupplier(supplier)}
+                          className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                        >
                           View
                         </button>
                       </td>
@@ -193,6 +242,53 @@ export default function SuppliersPage() {
           </div>
         )}
       </main>
+      {selectedSupplier && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b">
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-bold">Supplier Details</h3>
+                <button onClick={() => setSelectedSupplier(null)} className="p-2 rounded-lg hover:bg-slate-100">
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <div className="text-sm text-slate-600">Name</div>
+                <div className="font-medium text-slate-800 uppercase">{selectedSupplier.name}</div>
+              </div>
+              {selectedSupplier.contactName && (
+                <div>
+                  <div className="text-sm text-slate-600">Contact</div>
+                  <div className="text-slate-800">{selectedSupplier.contactName}</div>
+                </div>
+              )}
+              {selectedSupplier.phone && (
+                <div>
+                  <div className="text-sm text-slate-600">Phone</div>
+                  <div className="text-slate-800">{selectedSupplier.phone}</div>
+                </div>
+              )}
+              {selectedSupplier.email && (
+                <div>
+                  <div className="text-sm text-slate-600">Email</div>
+                  <div className="text-slate-800">{selectedSupplier.email}</div>
+                </div>
+              )}
+              {selectedSupplier.address && (
+                <div>
+                  <div className="text-sm text-slate-600">Address</div>
+                  <div className="text-slate-800">{selectedSupplier.address}</div>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t flex justify-end">
+              <button onClick={() => setSelectedSupplier(null)} className="px-4 py-2 rounded-xl bg-white border">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

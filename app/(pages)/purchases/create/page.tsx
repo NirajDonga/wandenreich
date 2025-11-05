@@ -95,7 +95,13 @@ export default function CreatePurchasePage() {
       invoiceNumber,
       paymentMethod,
       amountPaid,
-      notes
+      notes,
+      // Company info - you can replace these with actual values from settings/auth
+      companyName: 'Your Company Name',
+      companyAddress: 'Your Address Here',
+      companyPhone: 'Your Phone Number',
+      companyEmail: 'your@email.com',
+      companyGSTIN: 'Your GSTIN'
     });
   };
 

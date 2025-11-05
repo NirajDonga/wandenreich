@@ -13,6 +13,7 @@ interface Customer {
   address?: string;
   gstin?: string;
   createdAt: string;
+  balanceOwed?: number;
 }
 
 export default function CustomersPage() {
@@ -21,6 +22,8 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [totalReceivable, setTotalReceivable] = useState(0);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -37,15 +40,62 @@ export default function CustomersPage() {
   const fetchCustomers = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/customers');
+      const [customersRes, salesRes] = await Promise.all([
+        fetch('/api/customers'),
+        fetch('/api/sales')
+      ]);
       
-      if (!response.ok) {
+      if (!customersRes.ok) {
         throw new Error('Failed to fetch customers');
       }
 
-      const data = await response.json();
-      setCustomers(data.customers || []);
+      const customersData = await customersRes.json();
+      const salesData = salesRes.ok ? await salesRes.json() : { sales: [] };
+
+      // Calculate balance owed per customer
+      const customersWithBalances = (customersData.customers || []).map((customer: Customer) => {
+        const customerSales = (salesData.sales || []).filter(
+          (sale: any) => sale.customerId === customer._id
+        );
+        const balanceOwed = customerSales.reduce((sum: number, sale: any) => sum + (sale.balanceDue || 0), 0);
+        return { ...customer, balanceOwed };
+      });
+
+      setCustomers(customersWithBalances);
+      
+      // Calculate total receivable
+      const total = customersWithBalances.reduce((sum: number, customer: Customer) => 
+        sum + (customer.balanceOwed || 0), 0
+      );
+      setTotalReceivable(total);
     } catch (err) { setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete customer with confirmation
+  const deleteCustomer = async (id: string) => {
+    const ok = confirm('Are you sure you want to delete this customer? This action cannot be undone.');
+    if (!ok) return;
+
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/customers?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete customer');
+      }
+
+      // Remove from UI
+      setCustomers(prev => prev.filter(c => c._id !== id));
+      // Recalculate total receivable
+      setTotalReceivable(prev => {
+        const removed = customers.find(c => c._id === id)?.balanceOwed || 0;
+        return Math.max(0, +(prev - removed).toFixed(2));
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -95,6 +145,23 @@ export default function CustomersPage() {
           <p className="text-slate-600">Manage your customer directory</p>
         </div>
 
+        {totalReceivable > 0 && (
+          <div className="mb-6 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-100 text-sm font-medium mb-1">💰 Total Amount Customers Owe You</p>
+                <p className="text-4xl font-bold">₹{totalReceivable.toFixed(2)}</p>
+                <p className="text-green-100 text-sm mt-2">Outstanding receivables across all customers</p>
+              </div>
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6">
             {error}
@@ -128,6 +195,7 @@ export default function CustomersPage() {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Phone</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Email</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">GSTIN</th>
+                    <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Owes You</th>
                     <th className="px-6 py-4 text-center text-sm font-semibold text-slate-700">Actions</th>
                   </tr>
                 </thead>
@@ -153,10 +221,32 @@ export default function CustomersPage() {
                           <span className="text-slate-400">-</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`text-sm font-semibold ${(customer.balanceOwed || 0) > 0 ? 'text-green-600' : 'text-slate-400'}`}>
+                          ₹{(customer.balanceOwed || 0).toFixed(2)}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-center">
-                        <button className="text-green-600 hover:text-green-800 font-medium text-sm">
-                          View
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => setSelectedCustomer(customer)}
+                            className="text-green-600 hover:text-green-800 font-medium text-sm"
+                          >
+                            View
+                          </button>
+                          <Link
+                            href={`/customers/edit/${customer._id}`}
+                            className="text-slate-700 hover:text-slate-900 font-medium text-sm"
+                          >
+                            Edit
+                          </Link>
+                          <button
+                            onClick={() => deleteCustomer(customer._id)}
+                            className="text-red-600 hover:text-red-800 font-medium text-sm"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -188,6 +278,48 @@ export default function CustomersPage() {
           </div>
         )}
       </main>
+      {selectedCustomer && (
+        <CustomerModal customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
+      )}
     </div>
   );
 }
+
+// Customer modal component
+const CustomerModal = ({ customer, onClose }: { customer: any; onClose: () => void }) => (
+  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="p-6 border-b flex justify-between items-center">
+        <h3 className="text-xl font-bold">Customer Details</h3>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100">✕</button>
+      </div>
+      <div className="p-6 space-y-4">
+        <div>
+          <div className="text-sm text-slate-600">Name</div>
+          <div className="font-medium text-slate-800 uppercase">{customer.name}</div>
+        </div>
+        {customer.phone && (
+          <div>
+            <div className="text-sm text-slate-600">Phone</div>
+            <div className="text-slate-800">{customer.phone}</div>
+          </div>
+        )}
+        {customer.email && (
+          <div>
+            <div className="text-sm text-slate-600">Email</div>
+            <div className="text-slate-800">{customer.email}</div>
+          </div>
+        )}
+        {customer.address && (
+          <div>
+            <div className="text-sm text-slate-600">Address</div>
+            <div className="text-slate-800">{customer.address}</div>
+          </div>
+        )}
+      </div>
+      <div className="p-6 border-t flex justify-end">
+        <button onClick={onClose} className="px-4 py-2 rounded-xl bg-white border">Close</button>
+      </div>
+    </div>
+  </div>
+);

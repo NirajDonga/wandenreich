@@ -5,7 +5,7 @@ import { connectDB } from '@/lib/mongodb';
 import Purchase from '@/lib/models/Purchase';
 import ProductSimple from '@/lib/models/ProductSimple';
 import StockTransaction from '@/lib/models/StockTransaction';
-import mongoose from 'mongoose';
+import StockBatch from '@/lib/models/StockBatch';
 
 // GET - Fetch all purchases for the logged-in user
 export async function GET() {
@@ -31,14 +31,9 @@ export async function GET() {
 
 // POST - Create a new purchase order
 export async function POST(request: NextRequest) {
-  const mongoSession = await mongoose.startSession();
-  mongoSession.startTransaction();
-
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -47,20 +42,16 @@ export async function POST(request: NextRequest) {
 
     // Validation
     if (!supplierId) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Supplier is required' }, { status: 400 });
     }
 
     if (!items || items.length === 0) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'At least one item is required' }, { status: 400 });
     }
 
     await connectDB();
 
-    // Calculate total and update stock
+    // Calculate total and prepare purchase items
     let totalAmount = 0;
     const purchaseItems = [];
 
@@ -68,8 +59,6 @@ export async function POST(request: NextRequest) {
       const { productId, quantity, unitCost, taxType, taxRate, taxAmount, totalCost } = item;
 
       if (!productId || !quantity || quantity <= 0 || !unitCost || unitCost <= 0) {
-        await mongoSession.abortTransaction();
-        mongoSession.endSession();
         return NextResponse.json({ error: 'Invalid item data' }, { status: 400 });
       }
 
@@ -77,11 +66,9 @@ export async function POST(request: NextRequest) {
       const product = await ProductSimple.findOne({
         _id: productId,
         userId: session.user.id
-      }).session(mongoSession);
+      });
 
       if (!product) {
-        await mongoSession.abortTransaction();
-        mongoSession.endSession();
         return NextResponse.json({ error: `Product not found: ${productId}` }, { status: 404 });
       }
 
@@ -97,27 +84,10 @@ export async function POST(request: NextRequest) {
         taxAmount: taxAmount || 0,
         totalCost: itemTotal
       });
-
-      // Update product stock (increase)
-      product.quantity += quantity;
-      await product.save({ session: mongoSession });
-
-      // Create stock transaction
-      await StockTransaction.create([{
-        userId: session.user.id,
-        productId,
-        transactionType: 'purchase',
-        quantity: quantity, // Positive for incoming stock
-        unitCost,
-        unitPrice: 0, // No selling price stored in product anymore
-        balanceAfter: product.quantity,
-        reference: 'Purchase', // Will update with purchase ID after creation
-        notes: `Purchase from supplier${invoiceNumber ? ` - Invoice: ${invoiceNumber}` : ''}`
-      }], { session: mongoSession });
     }
 
-    // Create purchase record
-    const purchase = await Purchase.create([{
+    // Create purchase record first
+    const purchase = await Purchase.create({
       userId: session.user.id,
       supplierId,
       items: purchaseItems,
@@ -128,30 +98,55 @@ export async function POST(request: NextRequest) {
       paymentStatus: (amountPaid >= totalAmount) ? 'paid' : (amountPaid > 0 ? 'partial' : 'unpaid'),
       invoiceNumber,
       notes
-    }], { session: mongoSession });
+    });
 
-    // Update stock transaction reference with purchase ID
-    await StockTransaction.updateMany(
-      {
-        userId: session.user.id,
-        reference: 'Purchase',
-        createdAt: { $gte: new Date(Date.now() - 5000) } // Within last 5 seconds
-      },
-      { reference: purchase[0]._id.toString() },
-      { session: mongoSession }
-    );
+    // Update stock and create transactions for each item
+    for (const item of items) {
+      const { productId, quantity, unitCost } = item;
 
-    await mongoSession.commitTransaction();
-    mongoSession.endSession();
+      // Update product stock (increase)
+      const product = await ProductSimple.findOne({
+        _id: productId,
+        userId: session.user.id
+      });
+
+      if (product) {
+        product.quantity += quantity;
+        await product.save();
+
+        // Create stock transaction
+        await StockTransaction.create({
+          userId: session.user.id,
+          productId,
+          transactionType: 'purchase',
+          quantity: quantity, // Positive for incoming stock
+          unitCost,
+          unitPrice: 0,
+          balanceAfter: product.quantity,
+          referenceId: purchase._id,
+          referenceModel: 'Purchase',
+          notes: `Purchase from supplier${invoiceNumber ? ` - Invoice: ${invoiceNumber}` : ''}`
+        });
+
+        // Create stock batch for FIFO tracking
+        await StockBatch.create({
+          userId: session.user.id,
+          productId,
+          purchaseId: purchase._id,
+          quantity: quantity, // Initial quantity
+          originalQuantity: quantity,
+          unitCost,
+          purchaseDate: new Date()
+        });
+      }
+    }
 
     return NextResponse.json({ 
       message: 'Purchase order created successfully', 
-      purchase: purchase[0] 
+      purchase 
     }, { status: 201 });
 
   } catch (error) {
-    await mongoSession.abortTransaction();
-    mongoSession.endSession();
     console.error('Error creating purchase:', error);
     return NextResponse.json({ error: 'Failed to create purchase order' }, { status: 500 });
   }
@@ -166,7 +161,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { purchaseId, amountPaid, paymentMethod, notes } = body;
+    const { purchaseId, amountPaid, paymentMethod, notes, paymentStatus } = body;
 
     if (!purchaseId) {
       return NextResponse.json({ error: 'Purchase ID is required' }, { status: 400 });
@@ -183,8 +178,12 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Purchase not found' }, { status: 404 });
     }
 
+    // Direct status update (simple toggle)
+    if (paymentStatus) {
+      purchase.paymentStatus = paymentStatus;
+    }
     // Update payment information
-    if (amountPaid !== undefined) {
+    else if (amountPaid !== undefined) {
       purchase.amountPaid = amountPaid;
       purchase.balanceDue = purchase.totalAmount - amountPaid;
       
@@ -220,14 +219,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - Delete a purchase (admin only, reverses stock)
 export async function DELETE(request: NextRequest) {
-  const mongoSession = await mongoose.startSession();
-  mongoSession.startTransaction();
-
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -235,8 +229,6 @@ export async function DELETE(request: NextRequest) {
     const purchaseId = searchParams.get('id');
 
     if (!purchaseId) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Purchase ID is required' }, { status: 400 });
     }
 
@@ -245,11 +237,9 @@ export async function DELETE(request: NextRequest) {
     const purchase = await Purchase.findOne({
       _id: purchaseId,
       userId: session.user.id
-    }).session(mongoSession);
+    });
 
     if (!purchase) {
-      await mongoSession.abortTransaction();
-      mongoSession.endSession();
       return NextResponse.json({ error: 'Purchase not found' }, { status: 404 });
     }
 
@@ -258,42 +248,38 @@ export async function DELETE(request: NextRequest) {
       const product = await ProductSimple.findOne({
         _id: item.productId,
         userId: session.user.id
-      }).session(mongoSession);
+      });
 
       if (product) {
         // Remove stock
         product.quantity -= item.quantity;
         if (product.quantity < 0) product.quantity = 0; // Prevent negative stock
-        await product.save({ session: mongoSession });
+        await product.save();
 
         // Create reversal stock transaction
-        await StockTransaction.create([{
+        await StockTransaction.create({
           userId: session.user.id,
           productId: item.productId,
           transactionType: 'adjustment',
           quantity: -item.quantity, // Negative for outgoing stock
           unitCost: item.unitCost,
-          unitPrice: 0, // No selling price stored in product anymore
+          unitPrice: 0,
           balanceAfter: product.quantity,
-          reference: purchaseId,
+          referenceId: purchaseId,
+          referenceModel: 'Purchase',
           notes: `Purchase reversal - Purchase ID: ${purchaseId}`
-        }], { session: mongoSession });
+        });
       }
     }
 
     // Delete the purchase
-    await Purchase.deleteOne({ _id: purchaseId }).session(mongoSession);
-
-    await mongoSession.commitTransaction();
-    mongoSession.endSession();
+    await Purchase.deleteOne({ _id: purchaseId });
 
     return NextResponse.json({ 
       message: 'Purchase deleted and stock reversed successfully' 
     }, { status: 200 });
 
   } catch (error) {
-    await mongoSession.abortTransaction();
-    mongoSession.endSession();
     console.error('Error deleting purchase:', error);
     return NextResponse.json({ error: 'Failed to delete purchase' }, { status: 500 });
   }

@@ -29,12 +29,12 @@ const StockTransactionSchema = new Schema({
     default: 0
   },
   referenceId: {
-    type: Schema.Types.ObjectId, // Links to PurchaseOrder or SalesOrder
+    type: Schema.Types.ObjectId, // Links to Purchase or Sale
     refPath: 'referenceModel'
   },
   referenceModel: {
     type: String,
-    enum: ['PurchaseOrderSimple', 'SalesOrderSimple', null]
+    enum: ['Purchase', 'Sale', null]
   },
   notes: {
     type: String,
