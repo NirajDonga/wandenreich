@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface Category {
   _id: string;
@@ -14,6 +16,8 @@ interface Category {
 export default function CategoriesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,7 +53,15 @@ export default function CategoriesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+    const confirmed = await confirm({
+      title: 'Delete Category',
+      message: 'Are you sure you want to delete this category?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       const response = await fetch(`/api/categories?id=${id}`, {
@@ -57,13 +69,14 @@ export default function CategoriesPage() {
       });
 
       if (response.ok) {
-        fetchCategories();
+        await fetchCategories();
+        showSuccess('Category deleted successfully!');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete category');
+        showError(data.error || 'Failed to delete category');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'An error occurred');
+      showError(err instanceof Error ? err.message : 'An error occurred');
     }
   };
 

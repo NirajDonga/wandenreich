@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface Unit {
   _id: string;
@@ -15,6 +17,8 @@ interface Unit {
 export default function UnitsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,7 +54,15 @@ export default function UnitsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this unit?')) return;
+    const confirmed = await confirm({
+      title: 'Delete Unit',
+      message: 'Are you sure you want to delete this unit of measure?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       const response = await fetch(`/api/units?id=${id}`, {
@@ -58,13 +70,14 @@ export default function UnitsPage() {
       });
 
       if (response.ok) {
-        fetchUnits();
+        await fetchUnits();
+        showSuccess('Unit deleted successfully!');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete unit');
+        showError(data.error || 'Failed to delete unit');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'An error occurred');
+      showError(err instanceof Error ? err.message : 'An error occurred');
     }
   };
 

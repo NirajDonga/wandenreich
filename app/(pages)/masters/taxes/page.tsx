@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface Tax {
   _id: string;
@@ -15,6 +17,8 @@ interface Tax {
 export default function TaxesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [taxes, setTaxes] = useState<Tax[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,7 +55,15 @@ export default function TaxesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this tax?')) return;
+    const confirmed = await confirm({
+      title: 'Delete Tax',
+      message: 'Are you sure you want to delete this tax rate?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       const response = await fetch(`/api/taxes?id=${id}`, {
@@ -59,13 +71,14 @@ export default function TaxesPage() {
       });
 
       if (response.ok) {
-        fetchTaxes();
+        await fetchTaxes();
+        showSuccess('Tax deleted successfully!');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete tax');
+        showError(data.error || 'Failed to delete tax');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'An error occurred');
+      showError(err instanceof Error ? err.message : 'An error occurred');
     }
   };
 

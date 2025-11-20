@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface PurchaseItem {
   productId: {
@@ -38,6 +40,8 @@ interface Purchase {
 export default function PurchasesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,9 +79,15 @@ export default function PurchasesPage() {
   };
 
   const handleDelete = async (purchaseId: string) => {
-    if (!confirm('Are you sure you want to delete this purchase? This will reverse the stock changes.')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Delete Purchase',
+      message: 'Are you sure you want to delete this purchase? This will reverse the stock changes and cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       setDeletingId(purchaseId);
@@ -90,11 +100,10 @@ export default function PurchasesPage() {
         throw new Error(data.error || 'Failed to delete purchase');
       }
 
-      // Refresh the list
       await fetchPurchases();
-      alert('Purchase deleted successfully!');
+      showSuccess('Purchase deleted successfully!');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete purchase');
+      showError(err instanceof Error ? err.message : 'Failed to delete purchase');
     } finally {
       setDeletingId(null);
     }

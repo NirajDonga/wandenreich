@@ -2,69 +2,76 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { connectDB } from '@/lib/mongodb';
 import User from '@/lib/models/User';
+import { isValidEmail, isValidGSTIN, isValidPhone, ValidationErrors, sanitizeString } from '@/lib/utils/validation';
+import { sanitizeObject, createErrorResponse, safeErrorLog } from '@/lib/utils/security';
 
 export async function POST(request: Request) {
   try {
     const { name, email, password, gstin, businessName, businessAddress, phone } = await request.json();
 
+    // Validate required fields
     if (!name || !email || !password) {
-      return NextResponse.json(
-        { error: 'Name, email, and password are required' },
-        { status: 400 }
-      );
+      return createErrorResponse('Name, email, and password are required', 400);
+    }
+
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return createErrorResponse(ValidationErrors.email, 400);
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return createErrorResponse('Password must be at least 8 characters long', 400);
     }
 
     // Validate GSTIN if provided
-    if (gstin) {
-      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstinRegex.test(gstin.toUpperCase())) {
-        return NextResponse.json(
-          { error: 'Invalid GSTIN format' },
-          { status: 400 }
-        );
-      }
+    if (gstin && !isValidGSTIN(gstin)) {
+      return createErrorResponse(ValidationErrors.gstin, 400);
+    }
+
+    // Validate phone if provided
+    if (phone && !isValidPhone(phone)) {
+      return createErrorResponse(ValidationErrors.phone, 400);
     }
 
     await connectDB();
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
-      return NextResponse.json(
-        { error: 'User already exists with this email' },
-        { status: 400 }
-      );
+      return createErrorResponse('An account with this email already exists', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await User.create({
-      name,
-      email: email.toLowerCase(),
+      name: sanitizeString(name),
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
-      gstin: gstin?.toUpperCase(),
-      businessName,
-      businessAddress,
-      phone,
+      gstin: gstin?.toUpperCase().trim(),
+      businessName: businessName ? sanitizeString(businessName) : undefined,
+      businessAddress: businessAddress ? sanitizeString(businessAddress) : undefined,
+      phone: phone ? phone.replace(/\D/g, '') : undefined,
     });
+
+    // Return sanitized user data (no password, no sensitive fields)
+    const safeUser = sanitizeObject(user.toObject());
 
     return NextResponse.json(
       { 
-        message: 'User created successfully', 
-        userId: user._id,
+        message: 'Account created successfully! Please sign in.',
         user: {
-          name: user.name,
-          email: user.email,
-          gstin: user.gstin,
-          businessName: user.businessName,
+          id: safeUser._id,
+          name: safeUser.name,
+          email: safeUser.email,
+          gstin: safeUser.gstin,
+          businessName: safeUser.businessName,
         }
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error('Registration error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const errorMsg = safeErrorLog(error, 'Registration');
+    console.error(errorMsg);
+    return createErrorResponse('Unable to create account. Please try again later.', 500, errorMsg);
   }
 }

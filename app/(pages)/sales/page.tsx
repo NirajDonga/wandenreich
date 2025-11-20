@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface SaleItem {
   productId: {
@@ -36,6 +38,8 @@ interface Sale {
 export default function SalesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -72,9 +76,15 @@ export default function SalesPage() {
   };
 
   const handleDelete = async (saleId: string) => {
-    if (!confirm('Are you sure you want to delete this sale? This will reverse the stock changes.')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Delete Sale',
+      message: 'Are you sure you want to delete this sale? This will reverse the stock changes and cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       setDeletingId(saleId);
@@ -87,11 +97,10 @@ export default function SalesPage() {
         throw new Error(data.error || 'Failed to delete sale');
       }
 
-      // Refresh the list
       await fetchSales();
-      alert('Sale deleted successfully!');
+      showSuccess('Sale deleted successfully!');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete sale');
+      showError(err instanceof Error ? err.message : 'Failed to delete sale');
     } finally {
       setDeletingId(null);
     }

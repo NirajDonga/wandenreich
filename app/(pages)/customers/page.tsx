@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useToast } from '@/components/shared/ToastProvider';
+import { useConfirm } from '@/components/shared/ConfirmDialog';
 
 interface Customer {
   _id: string;
@@ -19,6 +21,8 @@ interface Customer {
 export default function CustomersPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { showSuccess, showError } = useToast();
+  const { confirm } = useConfirm();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -76,8 +80,15 @@ export default function CustomersPage() {
 
   // Delete customer with confirmation
   const deleteCustomer = async (id: string) => {
-    const ok = confirm('Are you sure you want to delete this customer? This action cannot be undone.');
-    if (!ok) return;
+    const confirmed = await confirm({
+      title: 'Delete Customer',
+      message: 'Are you sure you want to delete this customer? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
 
     try {
       setLoading(true);
@@ -94,8 +105,11 @@ export default function CustomersPage() {
         const removed = customers.find(c => c._id === id)?.balanceOwed || 0;
         return Math.max(0, +(prev - removed).toFixed(2));
       });
+      showSuccess('Customer deleted successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMsg = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMsg);
+      showError(errorMsg);
     } finally {
       setLoading(false);
     }
